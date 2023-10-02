@@ -53,6 +53,7 @@ func (sig *codeInjection) GetSelectedEvents() ([]detect.SignatureEventSelector, 
 	}, nil
 }
 
+
 func (sig *codeInjection) OnEvent(event protocol.Event) error {
 	// event example:
 	// { "eventName": "ptrace", "args": [{"name": "request", "value": "PTRACE_POKETEXT" }]}
@@ -70,18 +71,21 @@ func (sig *codeInjection) OnEvent(event protocol.Event) error {
 			return fmt.Errorf("%v %#v", err, ee)
 		}
 		if helpers.IsFileWrite(flags.Value.(string)) {
-			pathname, err := helpers.GetTraceeArgumentByName(ee, "pathname", helpers.GetArgOps{DefaultArgs: false})
+			pathnameArg, err := helpers.GetTraceeArgumentByName(ee, "pathname", helpers.GetArgOps{DefaultArgs: false})
 			if err != nil {
 				return err
 			}
-			if sig.processMemFileRegexp.MatchString(pathname.Value.(string)) {
+			pathname, ok := pathnameArg.Value.(string) // Check type assertion
+			if !ok {
+				return fmt.Errorf("failed to cast pathname.Value to string") // This is the new addition
+			}
+			if sig.processMemFileRegexp.MatchString(pathname) {
 				sig.cb(detect.Finding{
-					// Signature: sig,
 					SigMetadata: sig.metadata,
 					Event:       event,
 					Data: map[string]interface{}{
-						"file flags": flags,
-						"file path":  pathname.Value.(string),
+						"file flags": flags.Value.(string),
+						"file path":  pathname,
 					},
 				})
 			}
@@ -91,10 +95,12 @@ func (sig *codeInjection) OnEvent(event protocol.Event) error {
 		if err != nil {
 			return err
 		}
-		requestString := request.Value.(string)
+		requestString, ok := request.Value.(string) // Check type assertion
+		if !ok {
+			return fmt.Errorf("failed to cast request.Value to string")
+		}
 		if requestString == "PTRACE_POKETEXT" || requestString == "PTRACE_POKEDATA" {
 			sig.cb(detect.Finding{
-				// Signature: sig,
 				SigMetadata: sig.metadata,
 				Event:       event,
 				Data: map[string]interface{}{
@@ -102,7 +108,8 @@ func (sig *codeInjection) OnEvent(event protocol.Event) error {
 				},
 			})
 		}
-		// TODO Commenting out the execve case to make it equivalent to Rego signature
+	}
+	// TODO Commenting out the execve case to make it equivalent to Rego signature
 		//
 		// case "execve":
 		//	envs, err := helpers.GetTraceeArgumentByName(ee, "envp", helpers.GetArgOps{DefaultArgs: false})
@@ -127,9 +134,11 @@ func (sig *codeInjection) OnEvent(event protocol.Event) error {
 		//			})
 		//		}
 		//	}
-	}
 	return nil
 }
+
+
+
 
 func (sig *codeInjection) OnSignal(s detect.Signal) error {
 	return nil
